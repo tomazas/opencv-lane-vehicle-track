@@ -1,0 +1,12 @@
+Car dataset taken by Brad Philip and Paul Updike.
+California Institute of Technology SURF project for summer 2001.
+
+526 images of cars from the rear. 360 x 240 pixels. No scale 
+normalisation. Jpeg format.
+Quite a few repeat images. 
+Taken of the freeways of southern California.
+
+Used in CVPR '03 submission of Rob Fergus.
+
+---------
+R. Fergus 14/2/03
