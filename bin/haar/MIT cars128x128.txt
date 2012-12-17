@@ -1,0 +1,82 @@
+    Car Data Readme
+
+        DOWNLOAD
+
+        Cars
+        ----
+
+        The database of color car images was generated from video sequences
+        taken in Boston and Cambridge over the course of a couple of days in
+        1999. Our goal was to demonstrate the rapid portability of the
+        trainable object detection system described in [2], [3] to a new
+        domain; this data was used in [1], [4], [5]. The pose of the cars in
+        the dataset is limited to frontal and rear views.
+
+        Each image was extracted from raw data and was scaled to the size
+        128x128 and aligned so that the car was in the center of the image;
+        the size of the cars is such that the front or rear bumper is
+        approximately 64 pixels across.
+
+        The data is presented without any normalization; for details on how
+        these images were processed, see the publications below.
+
+        [1]
+        @TechReport{PapPog99b,
+        author = {C. Papageorgiou and T. Poggio},
+        title = {A Trainable Object Detection System: Car Detection in Static Images},
+        institution = mitai,
+        year = 1999,
+        number = 1673,
+        month = {October},
+        note = {(CBCL Memo 180)}
+        }
+
+        [2]
+        @INPROCEEDINGS{OrePap97,
+        AUTHOR = {M. Oren and C.P. Papageorgiou and P. Sinha and E. Osuna and T. Poggio},
+        TITLE = {Pedestrian Detection Using Wavelet Templates},
+        BOOKTITLE = cvpr,
+        YEAR = {1997},
+        PAGES = {193-99}
+        }
+
+        [3]
+        @INPROCEEDINGS{PapOre98,
+        AUTHOR = {C.P. Papageorgiou and M. Oren and T. Poggio},
+        TITLE = {A General Framework for Object Detection},
+        BOOKTITLE = {Proceedings of 6th International Conference on Computer Vision},
+        YEAR = {1998}
+        }
+
+        [4]
+        @TechReport{Pap00,
+        author = {C. Papageorgiou},
+        title = {A Trainable System for Object Detection in Images and Video Sequences},
+        institution = mitai,
+        year = 2000,
+        type = {Technical Report},
+        number = 1685
+        }
+
+        [5]
+        @Article{PapPog00,
+        author = {C. Papageorgiou and T. Poggio},
+        title = {A Trainable System for Object Detection},
+        journal = ijcv,
+        year = 2000,
+        note = {In press}
+        }
+
+         
+
+        Copyright 2000
+        Center for Biological and Computational Learning at MIT and MIT
+        All rights reserved.
+        Permission to copy and modify this data, software, and its documentation only for internal research use in your organization is hereby granted, provided that this notice is retained thereon and on all copies. This data and software should not be distributed to anyone outside of your organization without explicit written authorization by the author(s) and MIT. It should not be used for commercial purposes without specific permission from the authors and MIT. MIT also requires written authorization by the author(s) to publish results obtained with the data or software and possibly citation of relevant CBCL reference papers.
+        We make no representation as to the suitability and operability of this data or software for any purpose. It is provided "as is" without express or implied warranty. 
+
+
+
+    Back to CBCL Homepage
+    marypat@ai.mit.edu
+
