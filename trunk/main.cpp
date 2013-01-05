@@ -19,36 +19,20 @@ void crop(IplImage* src,  IplImage* dest, CvRect rect) {
     cvResetImageROI(src); 
 }
 
-struct BBox {
-	BBox():xmin(999999),xmax(-999999),ymin(999999),ymax(-999999){}
-	bool contains(CvPoint p) {
-		return (p.x > xmin && p.x < xmax && p.y > ymin && p.y < ymax);
-	}
-	int xmin, xmax, ymin, ymax;
-};
-
 struct Lane {
 	Lane(){}
-	Lane(CvPoint a, CvPoint b, float angle): p0(a),p1(b),angle(angle),
-		votes(0),visited(false),found(false)
-	{
-		// compute bbox
-		box.xmin = MIN(MIN(box.xmin, p0.x), p1.x);
-		box.xmax = MAX(MAX(box.xmax, p0.x), p1.x);
-		box.ymin = MIN(MIN(box.ymin, p0.y), p1.y);
-		box.ymax = MAX(MAX(box.ymax, p0.y), p1.y);
-	}
+	Lane(CvPoint a, CvPoint b, float angle, float kl, float bl): p0(a),p1(b),angle(angle),
+		votes(0),visited(false),found(false),k(kl),b(bl) { }
 
 	CvPoint p0, p1;
-	BBox box;
 	int votes;
 	bool visited, found;
-	float angle;
+	float angle, k, b;
 };
 
 struct Status {
 	Status():reset(true),lost(0){}
-	MA k, b;
+	ExpMovingAverage k, b;
 	bool reset;
 	int lost;
 };
@@ -69,6 +53,7 @@ struct VehicleSample {
 
 #define GREEN CV_RGB(0,255,0)
 #define RED CV_RGB(255,0,0)
+#define BLUE CV_RGB(255,0,255)
 #define PURPLE CV_RGB(255,0,255)
 
 Status laneR, laneL;
@@ -76,30 +61,30 @@ std::vector<Vehicle> vehicles;
 std::vector<VehicleSample> samples;
 
 enum{
-    SCAN_STEP = 5,			 // in pixels
-	LINE_REJECT_DEGREES = 5, // in degrees
-    BW_TRESHOLD = 250,		 // edge response strength to recognize for 'WHITE'
-    BORDERX = 10,			 // px, skip this much from left & right borders
-	MAX_RESPONSE_DIST = 5,	 // px
+    SCAN_STEP = 5,			  // in pixels
+	LINE_REJECT_DEGREES = 10, // in degrees
+    BW_TRESHOLD = 250,		  // edge response strength to recognize for 'WHITE'
+    BORDERX = 10,			  // px, skip this much from left & right borders
+	MAX_RESPONSE_DIST = 5,	  // px
 	
 	CANNY_MIN_TRESHOLD = 1,	  // edge detector minimum hysteresis threshold
 	CANNY_MAX_TRESHOLD = 100, // edge detector maximum hysteresis threshold
 
-	HOUGH_TRESHOLD = 50,
-	HOUGH_MIN_LINE_LENGTH = 10,	// join line with smaller than this gaps
-	HOUGH_MAX_LINE_GAP = 100,
+	HOUGH_TRESHOLD = 50,		// line approval vote threshold
+	HOUGH_MIN_LINE_LENGTH = 50,	// remove lines shorter than this treshold
+	HOUGH_MAX_LINE_GAP = 100,   // join lines to one with smaller than this gaps
 
-	CAR_DETECT_LINES = 4,   // minimum lines for a region to pass validation as a 'CAR'
+	CAR_DETECT_LINES = 4,    // minimum lines for a region to pass validation as a 'CAR'
 	CAR_H_LINE_LENGTH = 10,  // minimum horizontal line length from car body in px
 
 	MAX_VEHICLE_SAMPLES = 30,      // max vehicle detection sampling history
-	CAR_DETECT_POSITIVE_SAMPLES = MAX_VEHICLE_SAMPLES-2, //
-	MAX_VEHICLE_NO_UPDATE_FREQ = 15 // in frames
+	CAR_DETECT_POSITIVE_SAMPLES = MAX_VEHICLE_SAMPLES-2, // probability positive matches for valid car
+	MAX_VEHICLE_NO_UPDATE_FREQ = 15 // remove car after this much no update frames
 };
 
 #define K_VARY_FACTOR 0.2f
 #define B_VARY_FACTOR 20
-#define MAX_LOST_FRAMES 10
+#define MAX_LOST_FRAMES 30
 
 void FindResponses(IplImage *img, int startX, int endX, int y, std::vector<int>& list)
 {
@@ -391,56 +376,66 @@ void processSide(std::vector<Lane> lanes, IplImage *edges, bool right) {
 	const int ENDY = h-1;
 	const int ENDX = right ? (w-BORDERX) : BORDERX;
 	int midx = w/2;
+	int midy = edges->height/2;
 	unsigned char* ptr = (unsigned char*)edges->imageData;
 
 	// show responses
-	int first_lane = -1;
+	int* votes = new int[lanes.size()];
+	for(int i=0; i<lanes.size(); i++) votes[i++] = 0;
 
 	for(int y=ENDY; y>=BEGINY; y-=SCAN_STEP) {
 		std::vector<int> rsp;
 		FindResponses(edges, midx, ENDX, y, rsp);
 
-		/*for (int i=0; i<rsp.size(); i++) {
-			CvPoint p = cvPoint(rsp[i], y);
-			bool found = false;
-		}	*/
-
 		if (rsp.size() > 0) {
-			CvPoint p = cvPoint(rsp[0], y);
+			int response_x = rsp[0]; // use first reponse (closest to screen center)
 
+			float dmin = 9999999;
+			float xmin = 9999999;
+			int match = -1;
 			for (int j=0; j<lanes.size(); j++) {
-				if (!lanes[j].box.contains(p)) continue;
-				float d = dist2line(cvPoint2D32f(lanes[j].p0.x, lanes[j].p0.y), 
+				// compute response point distance to current line
+				float d = dist2line(
+						cvPoint2D32f(lanes[j].p0.x, lanes[j].p0.y), 
 						cvPoint2D32f(lanes[j].p1.x, lanes[j].p1.y), 
-						cvPoint2D32f(p.x, p.y));
+						cvPoint2D32f(response_x, y));
 
-				if (d <= MAX_RESPONSE_DIST) {
-					//right[j].votes++;
-					//found = true;
-					if (first_lane == -1) {
-						first_lane = j;
-					}
+				// point on line at current y line
+				int xline = (y - lanes[j].b) / lanes[j].k;
+				int dist_mid = abs(midx - xline); // distance to midpoint
+
+				// pick the best closest match to line & to screen center
+				if (match == -1 || (d <= dmin && dist_mid < xmin)) {
+					dmin = d;
+					match = j;
+					xmin = dist_mid;
 					break;
 				}
 			}
 
-			/*
-			if (found) {
-				cvCircle(temp_frame, p, 2, CV_RGB(0,255,0), 2);
-			}*/
+			// vote for each line
+			if (match != -1) {
+				votes[match] += 1;
+			}
 		}
 	}
 
-	if (first_lane != -1) {
-		Lane* best = &lanes[first_lane];
-		
-		float dy = best->p1.y - best->p0.y;
-		float dx = best->p1.x - best->p0.x;
-		float k = dy/dx;//tanf(atan2(dy,dx));
-		float b = best->p0.y - k*best->p0.x;
+	int bestMatch = -1;
+	int mini = 9999999;
+	for (int i=0; i<lanes.size(); i++) {
+		int xline = (midy - lanes[i].b) / lanes[i].k;
+		int dist = abs(midx - xline); // distance to midpoint
 
-		float k_diff = fabs(k - side->k.average);
-		float b_diff = fabs(b - side->b.average);
+		if (bestMatch == -1 || (votes[i] > votes[bestMatch] && dist < mini)) {
+			bestMatch = i;
+			mini = dist;
+		}
+	}
+
+	if (bestMatch != -1) {
+		Lane* best = &lanes[bestMatch];
+		float k_diff = fabs(best->k - side->k.get());
+		float b_diff = fabs(best->b - side->b.get());
 
 		bool update_ok = (k_diff <= K_VARY_FACTOR && b_diff <= B_VARY_FACTOR) || side->reset;
 
@@ -449,8 +444,8 @@ void processSide(std::vector<Lane> lanes, IplImage *edges, bool right) {
 		
 		if (update_ok) {
 			// update is in valid bounds
-			side->k.add(k);
-			side->b.add(b);
+			side->k.add(best->k);
+			side->b.add(best->b);
 			side->reset = false;
 			side->lost = 0;
 		} else {
@@ -471,6 +466,8 @@ void processSide(std::vector<Lane> lanes, IplImage *edges, bool right) {
 			side->b.clear();
 		}
 	}
+
+	delete[] votes;
 }
 
 void processLanes(CvSeq* lines, IplImage* edges, IplImage* temp_frame) {
@@ -490,27 +487,17 @@ void processLanes(CvSeq* lines, IplImage* edges, IplImage* temp_frame) {
 		}
 
 		// assume that vanishing point is close to the image horizontal center
-		//y = kx + b;
+		// calculate line parameters: y = kx + b;
+		dx = (dx == 0) ? 1 : dx; // prevent DIV/0!  
 		float k = dy/(float)dx;
 		float b = line[0].y - k*line[0].x;
-		float x  = -b/k;
-
-		const float w2 = temp_frame->width/2;
-		//TODO: does not work always (e.g. when the car is changing lanes!!! HT lines get lost!)
-		if (fabs(w2 - x) >= 50) {
-			continue;
-		}
 
 		// assign lane's side based by its midpoint position 
 		int midx = (line[0].x + line[1].x) / 2;
-		CvScalar s;
-			
 		if (midx < temp_frame->width/2) {
-			s = CV_RGB(255,0,0);
-			left.push_back(Lane(line[0], line[1], angle));
+			left.push_back(Lane(line[0], line[1], angle, k, b));
 		} else if (midx > temp_frame->width/2) {
-			s = CV_RGB(0,0,255);
-			right.push_back(Lane(line[0], line[1], angle));
+			right.push_back(Lane(line[0], line[1], angle, k, b));
 		}
     }
 
@@ -529,13 +516,13 @@ void processLanes(CvSeq* lines, IplImage* edges, IplImage* temp_frame) {
 	// show computed lanes
 	int x = temp_frame->width * 0.55f;
 	int x2 = temp_frame->width;
-	cvLine(temp_frame, cvPoint(x, laneR.k.average*x + laneR.b.average), 
-		cvPoint(x2, laneR.k.average * x2 + laneR.b.average), CV_RGB(255, 0, 255), 2);
+	cvLine(temp_frame, cvPoint(x, laneR.k.get()*x + laneR.b.get()), 
+		cvPoint(x2, laneR.k.get() * x2 + laneR.b.get()), CV_RGB(255, 0, 255), 2);
 
 	x = temp_frame->width * 0;
 	x2 = temp_frame->width * 0.45f;
-	cvLine(temp_frame, cvPoint(x, laneL.k.average*x + laneL.b.average), 
-		cvPoint(x2, laneL.k.average * x2 + laneL.b.average), CV_RGB(255, 0, 255), 2);
+	cvLine(temp_frame, cvPoint(x, laneL.k.get()*x + laneL.b.get()), 
+		cvPoint(x2, laneL.k.get() * x2 + laneL.b.get()), CV_RGB(255, 0, 255), 2);
 }
 
 int main(void)
