@@ -38,7 +38,8 @@
 2. Viola and Jones, "Rapid object detection using a boosted cascade of simple features", Computer Vision and Pattern Recognition, 2001
 3. King Hann Lim et al. "Lane-Vehicle Detection and Tracking", IMECS, 2009
 
-Training data used from: California Institute of Technology SURF project
+#####Training data used from: #####
+California Institute of Technology SURF project
 
 ##### Projects using our source code base & samples (YouTube video): #####
 [![Example video](http://img.youtube.com/vi/NG3POm989fU/0.jpg)](https://www.youtube.com/watch?v=NG3POm989fU)
